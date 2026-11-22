@@ -4,77 +4,90 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 from src.config.database import connection
 from src.config.settings import ARTIFACTS
-from src.constants.enums import Review, Role, Status
+from src.constants.enums import Role
 from src.controllers.auth import allow, current
+from src.domain.reconcile import build_report
 from src.domain.spec import SPEC
 from src.models.identity import User
-from src.models.jobs import Run
+from src.models.jobs import PairingBatch, PostedGroup
 from src.models.source import Dataset
-from src.schemas.requests import ReviewRequest, RunRequest
+from src.schemas.requests import BatchRequest, PostRequest
+from src.services import ledger as ledger_service
 from src.services.audit import record
-from src.services.validation import normalize_params
+from src.services.pairing import StalePlan, post_confirmed
 from src.utils import views
 from src.utils.wakeup import wake
 
-router = APIRouter(prefix='/runs')
+router = APIRouter()
 
 
-def require_job(db, run_id, lock=False):
-    item = db.get(Run, run_id, with_for_update=lock)
-    if not item:
-        raise HTTPException(404, '找不到该运行记录')
-    return item
-
-
-@router.get('')
+@router.get('/batches')
 def index(db: Session = Depends(connection), actor: User = Depends(current)):
-    return [views.run(item) for item in db.scalars(select(Run).order_by(Run.id.desc()).limit(100))]
+    items = db.scalars(select(PairingBatch).order_by(PairingBatch.id.desc()).limit(100))
+    return [views.batch(item) for item in items]
 
 
-@router.post('', status_code=202)
-def create(body: RunRequest, db: Session = Depends(connection),
+@router.post('/batches', status_code=202)
+def create(body: BatchRequest, db: Session = Depends(connection),
            actor: User = Depends(allow(Role.ADMIN, Role.ANALYST))):
     if not db.get(Dataset, body.dataset_id):
         raise HTTPException(404, '找不到指定的数据批次')
-    item = Run(name=body.name, dataset_id=body.dataset_id, params=normalize_params(body.params), author=actor.username)
+    item = PairingBatch(name=body.name, dataset_id=body.dataset_id, author=actor.username)
     db.add(item)
     db.flush()
-    record(db, actor.username, 'analysis.queued', item.id, dataset_id=item.dataset_id)
+    record(db, actor.username, 'reconcile.queued', item.id, dataset_id=item.dataset_id)
     db.commit()
     wake()
-    return views.run(item, detail=True)
+    return views.batch(item, detail=True)
 
 
-@router.get('/{run_id}')
-def detail(run_id: int, db: Session = Depends(connection), actor: User = Depends(current)):
-    return views.run(require_job(db, run_id), detail=True)
+@router.get('/batches/{batch_id}')
+def detail(batch_id: int, db: Session = Depends(connection), actor: User = Depends(current)):
+    item = db.get(PairingBatch, batch_id)
+    if not item:
+        raise HTTPException(404, '找不到该对账批次')
+    return views.batch(item, detail=True)
 
 
-@router.get('/{run_id}/export')
-def export(run_id: int, db: Session = Depends(connection), actor: User = Depends(current)):
-    item = require_job(db, run_id)
+@router.get('/batches/{batch_id}/export')
+def export(batch_id: int, db: Session = Depends(connection), actor: User = Depends(current)):
+    item = db.get(PairingBatch, batch_id)
+    if not item:
+        raise HTTPException(404, '找不到该对账批次')
     if not item.export_file:
-        raise HTTPException(409, '此记录尚无可下载结果')
+        raise HTTPException(409, '此批次尚无可下载结果')
     path = ARTIFACTS / item.export_file
     if not path.is_file():
         raise HTTPException(410, '导出文件已不可用，请重新运行')
-    return FileResponse(path, media_type='text/csv', filename=f'{SPEC["short_name"]}-{item.id}.csv')
+    return FileResponse(path, media_type='text/csv',
+                        filename=f'{SPEC["short_name"]}-{item.id}.csv')
 
 
-@router.post('/{run_id}/review')
-def review(run_id: int, body: ReviewRequest, db: Session = Depends(connection),
-           actor: User = Depends(allow(Role.ADMIN))):
-    item = require_job(db, run_id, lock=True)
-    if item.status != Status.COMPLETE or item.review != Review.PENDING:
-        raise HTTPException(409, '只有已完成且待复核的记录可以提交决定')
-    if body.review == Review.PENDING:
-        raise ValueError('请选择通过或退回')
-    if body.review == Review.ACCEPTED and not body.decision:
-        raise ValueError('通过复核时请填写处置决定')
-    modes = SPEC.get('modes')
-    if modes and body.decision and body.decision not in modes:
-        raise ValueError('请选择项目支持的处置决定')
-    item.review, item.review_note, item.decision = body.review, body.note, body.decision or None
-    record(db, actor.username, f'review.{item.review}', item.id, note=body.note, decision=item.decision)
+@router.post('/batches/{batch_id}/post')
+def post(batch_id: int, body: PostRequest, db: Session = Depends(connection),
+         actor: User = Depends(allow(Role.ADMIN))):
+    try:
+        outcome = post_confirmed(db, batch_id, actor.username, body.note)
+    except LookupError as error:
+        raise HTTPException(404, str(error)) from None
+    except StalePlan as error:
+        db.rollback()
+        raise HTTPException(409, str(error)) from None
     db.commit()
-    return views.run(item, detail=True)
+    return outcome
+
+
+@router.get('/posted')
+def posted(db: Session = Depends(connection), actor: User = Depends(current)):
+    items = db.scalars(select(PostedGroup).order_by(PostedGroup.id.desc()).limit(200))
+    return [views.posted_group(item) for item in items]
+
+
+@router.get('/report')
+def report(db: Session = Depends(connection), actor: User = Depends(current)):
+    """班报页面：已入账整组 + 当前待认领单据的实时待核原因。"""
+    posted_items = [views.posted_group(item)
+                    for item in db.scalars(select(PostedGroup).order_by(PostedGroup.id.desc()))]
+    invoices, notes = ledger_service.open_documents(db)
+    live = build_report(invoices, notes) if (invoices or notes) else None
+    return {'posted_groups': posted_items, 'live': live}

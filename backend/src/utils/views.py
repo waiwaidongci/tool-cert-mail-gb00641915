@@ -1,3 +1,4 @@
+from src.domain.reconcile import format_yuan
 from src.utils.time import iso
 
 
@@ -6,24 +7,38 @@ def dataset(item):
             'checksum': item.checksum, 'author': item.author, 'created_at': iso(item.created_at)}
 
 
-def run(item, detail=False):
-    item_view = {'id': item.id, 'dataset_id': item.dataset_id, 'name': item.name, 'status': item.status,
-                 'author': item.author, 'review': item.review, 'decision': item.decision,
-                 'created_at': iso(item.created_at), 'finished_at': iso(item.finished_at),
-                 'scheduled_at': iso(item.scheduled_at), 'schedule_id': item.schedule_id,
-                 'has_export': bool(item.export_file), 'error': item.error}
+def batch(item, detail=False):
+    view = {'id': item.id, 'dataset_id': item.dataset_id, 'name': item.name, 'status': item.status,
+            'author': item.author, 'created_at': iso(item.created_at),
+            'finished_at': iso(item.finished_at), 'has_export': bool(item.export_file),
+            'error': item.error,
+            'confirmed_count': len(item.result.get('confirmed_groups', [])) if item.result else 0,
+            'pending_invoice_count': len(item.result.get('pending_invoices', [])) if item.result else 0,
+            'pending_note_count': len(item.result.get('pending_notes', [])) if item.result else 0}
     if detail:
-        item_view.update(params=item.params, result=item.result, review_note=item.review_note)
-    return item_view
+        view['result'] = item.result
+    return view
 
 
-def schedule(item):
-    from src.domain.spec import SPEC
-    return {'id': item.id, 'name': item.name, 'dataset_id': item.dataset_id, 'recipient': item.recipient,
-            'next_at': iso(item.next_at), 'repeat_daily': item.repeat_daily, 'enabled': item.enabled,
-            'next_report_day': item.params.get(SPEC['schedule_date_param']) if item.enabled else None}
+def invoice(item):
+    return {'id': item.id, 'invoice_id': item.invoice_id, 'organization': item.organization,
+            'settlement_period': item.settlement_period, 'issued_on': item.issued_on,
+            'amount_cents': item.amount_cents, 'amount_yuan': format_yuan(item.amount_cents),
+            'summary': item.summary, 'dataset_id': item.dataset_id, 'author': item.author,
+            'created_at': iso(item.created_at)}
 
 
-def delivery(item):
-    return {'id': item.id, 'run_id': item.run_id, 'recipient': item.recipient,
-            'state': item.state, 'detail': item.detail, 'created_at': iso(item.created_at)}
+def note(item):
+    return {'id': item.id, 'note_code': item.note_code, 'organization': item.organization,
+            'settlement_period': item.settlement_period, 'issued_on': item.issued_on,
+            'amount_cents': item.amount_cents, 'amount_yuan': format_yuan(item.amount_cents),
+            'workshop': item.workshop, 'summary': item.summary, 'dataset_id': item.dataset_id,
+            'author': item.author, 'created_at': iso(item.created_at)}
+
+
+def posted_group(item):
+    return {'id': item.id, 'group_key': item.group_key, 'batch_id': item.batch_id,
+            'invoice_id': item.invoice_id, 'organization': item.organization,
+            'settlement_period': item.settlement_period, 'note_codes': item.note_codes,
+            'amount_cents': item.amount_cents, 'amount_yuan': format_yuan(item.amount_cents),
+            'basis': item.basis, 'author': item.author, 'created_at': iso(item.created_at)}

@@ -1,71 +1,58 @@
-DEMO_DAY = '2026-11-21'
-INSTRUMENT = '器具台账'
-CERTIFICATE = '校准证书'
-ACTIVE = '在用'
-INACTIVE = '停用'
+INVOICE = '校准机构发票'
+ACCEPTANCE = '车间验收单'
 
 SPEC = {
-    'title': '工厂计量器具证书到期班报',
-    'short_name': 'tool-cert-mail',
-    'subtitle': '交班前核对校准证书，逐台安排停用、送校与补档',
-    'organization': '澄岭精密零件厂 · 质量计量室',
+    'title': '校准发票与验收单对账班报',
+    'short_name': 'invoice-reconcile',
+    'subtitle': '同机构同结算期精确配平，一致整组入账，余下待核',
+    'organization': '澄岭精密零件厂 · 财务结算室',
     'workflow': (
-        '澄岭精密零件厂有机加工、装配和终检三处作业区，两班共用计量器具。'
-        '过去由计量员把器具台账和校准机构的证书登记表逐项对照，再在交班群中通知线长。'
-        '计量员现将两份清单合并导入，值班主管设定报告日、临期天数和覆盖门槛。'
-        '班组在站内收件箱领取班报，按器具编号安排替换、送校和证书补档。'
+        '校准机构按月开具服务费发票，车间按器具校准完工提交验收单。'
+        '财务把两类单据合并导入，后台按校准机构与结算期分组，'
+        '以整数分精确凑数：一张发票可配同组多张验收单，每张单据只能认领一次。'
+        '系统先尽量多配平发票，枚举全部最优方案，只把所有方案一致的整组提交入账，其余留待核对并注明原因。'
     ),
     'pains': [
-        '同一器具有多张历史证书，手工筛选时可能引用旧证或将后续签发的证书算入历史班报。',
-        '班组难以从单一到期总数判断哪台器具该停用、送校或补档。',
-        '证书登记缺口常在班报转发后才被发现。',
+        '一张发票常对应多张验收单，人工凑金额容易漏单、错配或重复认领。',
+        '同额单据存在多种等价配法，未经比对直接入账可能选错整组。',
+        '晚到验收单补齐后手工重算，容易破坏已经入账的配对。',
+        '班报必须说清每组配对依据，以及每张待核单据为什么不能确认。',
     ],
     'steps': [
-        '11 月 21 日 07:30，计量员导入《澄岭厂器具台账及校准证书.csv》，其中有 6 台在用器具及 1 台停用器具。',
-        '07:40，以 11 月 21 日为报告日生成班报，设置 14 天提醒和 80% 最低覆盖率。',
-        '机加工卡尺 QC-101 已过期 1 天，线长换用有效备用卡尺并登记送校。',
-        '装配扭矩扳手 QC-102 当日到期，线长在交班前安排换具和送校。',
-        '计量员联系终检核对 QC-106 的证书，11 月 22 日签发的记录留待下一报告日采纳。',
-        '主管确认 5/6 台有证书记录，配置站内定时分发。',
-        '将覆盖门槛提高到 100% 试跑，班报保留逐台处置清单，定时分发暂停。',
+        '11 月 22 日 08:00，财务导入《澄岭厂校准发票与车间验收单.csv》，含岭南计量、东江检测院两个机构的两个结算期单据。',
+        '08:10 创建对账批次，后台按机构与结算期分组，金额精确到分配平。',
+        '岭南计量 10 月期发票 INV-2610-01 金额 1200.00 元，由验收单 YS-1001、YS-1002 凑齐，整组唯一，进入建议入账。',
+        '11 月期两张 500.00 元发票与两张 500.00 元验收单存在两种等价最优配法，方案不一致，全部留待核。',
+        '主管在配对结果页核对配对依据后确认入账，系统锁定发票与验收单，重复提交不会二次认领。',
+        '晚到验收单补齐导入后重新计算，已入账整组原样保留，仅待认领单据参与新一轮配对。',
+        '在班报与待核页查看配对依据、待核原因，并下载对账 CSV 交班。',
     ],
     'methodology': [
-        '在用范围取导入台账。每台器具选取签发日不晚于报告日的最新证书，同日按证书编号字典序取最后一条。',
-        '到期剩余天数 = 到期日减报告日。负值为已过期，0 为当日到期，其余在提醒天数内（含上限）为即将到期。',
-        '覆盖率 = 截至报告日有证书的在用器具数 ÷ 在用器具总数，已过期的证书也计入覆盖率。',
-        '至少有一台在用器具且实际覆盖率达到门槛时允许定时分发。每日计划推进报告日并读取最新导入批次。',
+        '发票与验收单按校准机构、结算期（YYYY-MM）分组，跨机构或跨结算期的单据不参与配对。',
+        '金额按整数分精确比较：发票金额必须等于其名下验收单金额之和，一张发票可配多张验收单，每张单据全程只能被认领一次。',
+        '可行配对中先最大化配平发票数，再最大化被认领的验收单数；枚举全部最优方案，仅确认在所有最优方案中都出现的整组，其余整组与单据列入待核并注明原因。',
+        '晚到单据导入后的重新计算只处理待认领单据，已入账整组原样保留；入账与重算并发时，引用了已变动单据的旧配法拒绝入账，可安全重试且不会重复认领。',
     ],
-    'sample_name': '澄岭厂器具台账及校准证书.csv',
-    'default_dataset': '澄岭精密 11 月校准证书演练批次',
-    'entity': '器具台账与校准证书',
-    'run': '证书到期班报',
-    'decision': '班报处置',
-    'action': '登记复核结论',
-    'modes': ['确认班报', '安排换具送校', '催补证书'],
-    'pages': ['计量值班台', '器具与证书', '班报与定时计划', '到期清单', '班报复核', '班报收件箱'],
-    'scheduled': True,
-    'schedule_date_param': 'report_day',
+    'sample_name': '澄岭厂校准发票与车间验收单.csv',
+    'default_dataset': '澄岭厂 11 月校准费对账演练批次',
+    'entity': '校准机构发票与车间验收单',
+    'run': '对账批次',
+    'decision': '入账决定',
+    'action': '确认入账',
+    'modes': ['确认入账', '退回待核'],
+    'pages': ['对账值班台', '单据与导入', '对账计算', '配对结果', '入账复核', '班报与待核'],
+    'scheduled': False,
     'fields': [
         {'key': 'record_type', 'label': '记录类型', 'type': 'select', 'required': True,
-         'options': [INSTRUMENT, CERTIFICATE]},
-        {'key': 'asset_id', 'label': '器具编号', 'type': 'string', 'required': True, 'max_length': 40},
-        {'key': 'asset_name', 'label': '器具名称（台账填写）', 'type': 'string', 'required': False, 'max_length': 80},
-        {'key': 'work_area', 'label': '作业区（台账填写）', 'type': 'string', 'required': False, 'max_length': 60},
-        {'key': 'owner', 'label': '责任班组（台账填写）', 'type': 'string', 'required': False, 'max_length': 60},
-        {'key': 'asset_status', 'label': '器具状态（台账填写）', 'type': 'select', 'required': False,
-         'options': [ACTIVE, INACTIVE]},
-        {'key': 'certificate_id', 'label': '证书编号（证书填写）', 'type': 'string', 'required': False, 'max_length': 60},
-        {'key': 'issued_on', 'label': '签发日（证书填写）', 'type': 'date', 'required': False},
-        {'key': 'expires_on', 'label': '到期日（证书填写）', 'type': 'date', 'required': False},
+         'options': [INVOICE, ACCEPTANCE]},
+        {'key': 'document_id', 'label': '单据编号', 'type': 'string', 'required': True, 'max_length': 40},
+        {'key': 'organization', 'label': '校准机构', 'type': 'string', 'required': True, 'max_length': 120},
+        {'key': 'settlement_period', 'label': '结算期（YYYY-MM）', 'type': 'string', 'required': True, 'max_length': 7},
+        {'key': 'issued_on', 'label': '单据日期', 'type': 'date', 'required': True},
+        {'key': 'amount', 'label': '金额（元，两位小数）', 'type': 'string', 'required': True, 'max_length': 16},
+        {'key': 'workshop', 'label': '车间（验收单填写）', 'type': 'string', 'required': False, 'max_length': 60},
+        {'key': 'summary', 'label': '摘要', 'type': 'string', 'required': False, 'max_length': 120},
     ],
-    'params': [
-        {'key': 'report_day', 'label': '报告日', 'type': 'date', 'required': True, 'default': DEMO_DAY,
-         'help': '以报告日筛选已签发的证书。每日分发计划会逐日推进此日期。'},
-        {'key': 'horizon_days', 'label': '临期提醒天数', 'type': 'int', 'required': True,
-         'default': 14, 'min': 0, 'max': 365, 'help': '0 天仅提醒当日到期。'},
-        {'key': 'min_coverage_percent', 'label': '最低证书覆盖率（%）', 'type': 'int', 'required': True,
-         'default': 80, 'min': 0, 'max': 100, 'help': '达到门槛才允许定时分发。'},
-    ],
-    'fixture': {'min_coverage_percent': 100},
-    'axes': '按在用器具计数，每台器具只归入一个证书状态。',
+    'params': [],
+    'axes': '按发票与验收单的整组配对计数，金额一律精确到分。',
 }

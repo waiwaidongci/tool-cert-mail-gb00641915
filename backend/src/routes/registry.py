@@ -7,10 +7,13 @@ from src.constants.enums import Role
 from src.controllers.auth import allow, current
 from src.domain.spec import SPEC
 from src.models.identity import User
+from src.models.jobs import PostedGroup
+from src.models.ledger import AcceptanceNote, Invoice
 from src.models.source import Dataset
 from src.schemas.requests import Upload
 from src.services.audit import record
-from src.services.datasets import save, template
+from src.services.datasets import template
+from src.services.ledger import LedgerConflict, import_ledger
 from src.services.validation import parse_rows
 from src.utils import views
 
@@ -19,7 +22,7 @@ router = APIRouter()
 
 @router.get('/spec')
 def spec():
-    return {key: value for key, value in SPEC.items() if key != 'fixture'}
+    return SPEC
 
 
 @router.get('/template')
@@ -47,8 +50,30 @@ def details(dataset_id: int, offset: int = Query(0, ge=0), limit: int = Query(16
 def upload(body: Upload, db: Session = Depends(connection),
            actor: User = Depends(allow(Role.ADMIN, Role.ANALYST))):
     rows = parse_rows(body.csv_text)
-    item, created = save(db, body.name, body.filename, rows, actor.username)
+    try:
+        item, created, stats = import_ledger(db, body.name, body.filename, rows, actor.username)
+    except LedgerConflict as error:
+        db.rollback()
+        raise HTTPException(409, str(error)) from None
     if created:
-        record(db, actor.username, 'dataset.imported', item.id, rows=item.row_count)
+        record(db, actor.username, 'dataset.imported', item.id,
+               rows=item.row_count, invoices=stats['invoices'], notes=stats['notes'],
+               updated=stats['updated'], skipped=stats['skipped'])
     db.commit()
-    return {**views.dataset(item), 'created': created}
+    return {**views.dataset(item), 'created': created, 'stats': stats}
+
+
+@router.get('/documents/invoices')
+def invoices(db: Session = Depends(connection), actor: User = Depends(current)):
+    claimed = set(db.scalars(select(PostedGroup.invoice_id)))
+    return [{**views.invoice(item), 'claimed': item.invoice_id in claimed}
+            for item in db.scalars(select(Invoice).order_by(Invoice.id.desc()).limit(500))]
+
+
+@router.get('/documents/notes')
+def notes(db: Session = Depends(connection), actor: User = Depends(current)):
+    claimed = set()
+    for codes in db.scalars(select(PostedGroup.note_codes)):
+        claimed.update(codes)
+    return [{**views.note(item), 'claimed': item.note_code in claimed}
+            for item in db.scalars(select(AcceptanceNote).order_by(AcceptanceNote.id.desc()).limit(500))]

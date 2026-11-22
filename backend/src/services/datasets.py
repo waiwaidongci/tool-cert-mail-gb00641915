@@ -4,7 +4,7 @@ import io
 import json
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
-from src.domain.demo import demo_rows
+from src.domain.ledger import demo_rows
 from src.domain.spec import SPEC
 from src.models.source import Dataset
 

@@ -1,5 +1,4 @@
-import {ROLE} from './constants/enums.js';
-import {deliveryPage} from './pages/delivery.js';
+import {reportPage} from './pages/report.js';
 import {reviewPage} from './pages/review.js';
 import {inputs} from './pages/inputs.js';
 import {login} from './pages/login.js';
@@ -12,7 +11,7 @@ import {workspace} from './stores/workspace.js';
 import {button, el, h, link, p} from './utils/dom.js';
 
 const app = document.getElementById('app');
-const views = {overview, inputs, run:runPage, results, review:reviewPage, delivery:deliveryPage};
+const views = {overview, inputs, run:runPage, results, review:reviewPage, report:reportPage};
 let revision = 0;
 
 function shell(state, content) {
@@ -22,9 +21,13 @@ function shell(state, content) {
     link(spec.title,'#overview',{class:'brand'}),
     el('nav',{'aria-label':'业务模块'},pages.map((page,i)=>link(spec.pages[i],`#${page}`,{class:'nav-link',
       'aria-current':page===state.page ? 'page' : undefined}))),
-    el('div',{class:'account'},p(`${ROLE[session.actor.role]} · ${session.actor.username}`),
+    el('div',{class:'account'},p(`${roleLabel(session.actor.role)} · ${session.actor.username}`),
       button('退出',{class:'quiet',onClick:()=>{session.signOut();render();}}))),
     el('main',{class:'main',id:'main'},el('header',{class:'header'},h(1,spec.pages[index]),p(spec.title)), content));
+}
+
+function roleLabel(role) {
+  return {admin:'复核主管', analyst:'分析员', viewer:'只读查看'}[role] || role;
 }
 
 async function render() {

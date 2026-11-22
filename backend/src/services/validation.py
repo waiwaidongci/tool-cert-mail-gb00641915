@@ -2,7 +2,7 @@ import csv
 import io
 import math
 from datetime import date
-from src.domain import analysis
+from src.domain import ledger
 from src.domain.spec import SPEC
 
 
@@ -45,7 +45,7 @@ def cell(field, raw):
 
 
 def parse_rows(text):
-    reader = csv.DictReader(io.StringIO(text.removeprefix('\ufeff'), newline=''), strict=True)
+    reader = csv.DictReader(io.StringIO(text.removeprefix('﻿'), newline=''), strict=True)
     fields = SPEC['fields']
     keys = {field['key'] for field in fields}
     required = {field['key'] for field in fields if field.get('required', True)}
@@ -67,13 +67,5 @@ def parse_rows(text):
         raise ValueError(f'CSV 第 {reader.line_num} 行附近格式不正确') from None
     if not rows:
         raise ValueError('CSV 至少需要一行有效数据')
-    if hasattr(analysis, 'validate_rows'):
-        analysis.validate_rows(rows)
+    ledger.validate_rows(rows)
     return rows
-
-
-def normalize_params(params):
-    fields = SPEC['params']
-    if set(params) - {field['key'] for field in fields}:
-        raise ValueError('存在未知运行参数，请重新打开工作面板')
-    return {field['key']: cell(field, params.get(field['key'], field['default'])) for field in fields}
